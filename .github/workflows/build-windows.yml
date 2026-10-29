@@ -1,0 +1,57 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      # 显式指定 dev：即使从 master 上点击运行，也始终构建 dev 的代码
+      - name: Checkout dev
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      # 从 simple_live_app/.fvmrc 读取 Flutter 3.47.1
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: simple_live_app/.fvmrc
+          cache: true
+
+      # 在日志里打印版本，用来确认编的是 dev 的 1.11.7 而不是 master 的 1.11.4
+      - name: Show target version
+        run: |
+          git rev-parse --abbrev-ref HEAD
+          git log -1 --format="%H %ci %s"
+          Get-Content simple_live_app\.fvmrc
+          Select-String -Path simple_live_app\pubspec.yaml -Pattern '^version:'
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      # dart pub global activate 安装的命令默认不在 PATH，这里补上
+      - name: Add pub global bin to PATH
+        run: echo "$env:LOCALAPPDATA\Pub\Cache\bin" >> $env:GITHUB_PATH
+
+      - name: Restore packages
+        working-directory: simple_live_app
+        run: flutter pub get
+
+      - name: Install flutter_distributor
+        run: dart pub global activate flutter_distributor
+
+      - name: Build Windows ZIP
+        working-directory: simple_live_app
+        run: flutter_distributor package --platform windows --targets zip --skip-clean
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: simple-live-windows
+          path: simple_live_app/build/dist/*/*.zip
+          if-no-files-found: error
+          retention-days: 14
